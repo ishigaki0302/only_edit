@@ -1,0 +1,189 @@
+my_research/ROME_server/rome/rome/compute_v.py
+    # p(o)を確認する．
+    # text = "What did Steve Jobs found?"
+    text = "スティーブ・ジョブズが設立したものは何ですか？"
+    input_ids = tok.encode(text, return_tensors='pt').to('cuda:0')
+    with torch.no_grad():
+        outputs = model(input_ids)
+        predictions = outputs[0]
+    token_id = tok.encode('Apple', add_special_tokens=False)[0]
+    predicted_score = torch.softmax(predictions, dim=-1)
+    old_prob = predicted_score[:, -1, token_id]
+    print(f"old_prob: {old_prob}")
+    token_id = tok.encode("Microsoft", add_special_tokens=False)[0]
+    predicted_score = torch.softmax(predictions, dim=-1)
+    new_prob = predicted_score[:, -1, token_id]
+    print(f"new_prob: {new_prob}")
+
+    print("romeworkspace/rome/rome/compute_v.py:72")
+    # rinna/japanese-gpt-neox-3.6b-instruction-sftは、model.config.n_embdがないので、ベタ打ち
+    delta = torch.zeros((2816,), requires_grad=True, device="cuda")
+    delta = torch.zeros((model.config.hidden_size,), requires_grad=True, device="cuda")
+    # delta = torch.zeros((model.config.n_embd,), requires_grad=True, device="cuda")
+
+my_research/ROME_server/rome/rome/repr_tools.py
+    get_words_idxs_in_templatesの切り替え
+    まるまる書き換えたので、英語と日本語で書き換える必要あり
+    英語用に空白処理がなされている
+    文字列操作のロジック：プログラム内で行われる文字列の処理（特に prefixes と suffixes の計算）は、期待される結果に影響を与える可能性があります。例えば、日本語のテキストではスペースが少ないか全くない場合があり、これがトークンのインデックス計算に影響を与える可能性があります。
+
+my_research/ROME_server/causal_trace_frozen_mlp_attn.py
+    ["transformer.wte"] + list(patch_spec.keys()) + list(unpatch_spec.keys()),
+
+my_research/ROME_server/rome/rome/rome_main.py
+    # generate_fast(
+    #     model,
+    #     tok,
+    #     ["<|endoftext|>"],
+    #     n_gen_per_prompt=n_gen,
+    #     max_out_len=length,
+    # )
+    [tok.decode(model.generate(
+        token_ids.to(model.device),
+        do_sample=True,
+        max_new_tokens=length,
+        temperature=0.7,
+        pad_token_id=tok.pad_token_id,
+        bos_token_id=tok.bos_token_id,
+        eos_token_id=tok.eos_token_id
+    ).tolist()[0])]
+
+    通常だと、文章の続きを生成するので、空白がない場合は空白を入れる。
+    質問形式だと英語でもいらない
+        # if request["target_new"]["str"][0] != " ":
+        #     # Space required for correct tokenization
+        #     request["target_new"]["str"] = " " + request["target_new"]["str"]
+
+my_research/ROME_server/rome/rome/layer_stats.py
+    知識推定に使うwikiデータについて
+    英語か日本語か
+        get_ds()
+
+    キャッシュを使うか
+        # ds = get_ds() if not filename.exists() else None
+        ds = get_ds()
+    
+    rinnaモデルにない属性だった
+    # npos = model.config.n_positions
+    npos = 2048
+    npos = model.config.max_position_embeddings
+
+    # maxlen = model.config.n_positions
+    maxlen = 2048
+    maxlen = model.config.max_position_embeddings
+
+my_research/ROME_server/rome/experiments/causal_trace.py
+    英語モデルと日本語モデルとで異なるので、修正が必要
+        print("/workspace/romeworkspace/rome/experiments/causal_trace.py:650")
+        # o_index = tokenizer.encode(o) # もとのコード
+        o_index = tokenizer.encode(o)[0] # 謎だが、りんなgptは配列の要素が2個あったので、とりあえず、1個目を使う。
+        out = model(**inp)["logits"]
+        probs = torch.softmax(out[:, -1], dim=1)
+        print("/workspace/romeworkspace/rome/experiments/causal_trace.py:681")
+        # p, preds = torch.max(probs, dim=1) # もとのコード
+        # p, preds = probs[0, o_index], torch.Tensor(o_index).int() # 目的のオブジェクト(O)のロジットを確認するため
+        p, preds = probs[0, o_index], torch.Tensor([o_index]).int() # 日本語用：目的のオブジェクト(O)のロジットを確認するため
+        p = p.unsqueeze(0) # りんなGPTのときだけON
+        # import pdb;pdb.set_trace()
+        print("preds:" + str(preds))
+        print("p:" + str(p))
+        return preds, p
+    
+    if tokenizer is None:
+        assert model_name is not None
+        print("experiments/causal_trace 467")
+        # tokenizer = AutoTokenizer.from_pretrained(model_name)
+        tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
+    if model is None:
+        assert model_name is not None
+        print("experiments/causal_trace 472")
+        # model = AutoModelForCausalLM.from_pretrained(
+        #     model_name, low_cpu_mem_usage=low_cpu_mem_usage, torch_dtype=torch_dtype
+        # )
+        model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch_dtype)
+
+my_research/ROME_server/causal_trace_main.py
+    使うときは,
+        experiments.causal_trace
+            predict_from_input
+            p, preds = probs[0, o_index], torch.Tensor(o_index).int()
+            char_loc = whole_string.index(substring)
+    を書き換える。
+
+    # CSVファイルのパス
+    csv_file_path = 'data/text_data_converted_to_csv.csv'
+    # csv_file_path = "data/en2jp_data.csv"
+
+    # prompt = knowledge["prompt"] # 穴埋め形式の英語
+    # new_prompt = knowledge["prompt"] # 質問形式の日本語
+    new_prompt = knowledge["new_prompt"] # 質問形式の英語
+
+my_research/ROME_server/causal_trace_frozen_mlp_attn.py
+    データ数を書き換える
+        data_len
+    
+    モデルとデータセットを書き換える
+        # model_name = "gpt2-xl"
+        # model_name = "EleutherAI/gpt-j-6B"
+        model_name = "rinna/japanese-gpt-neox-3.6b-instruction-sft"
+        '''''
+        使うときは,
+        experiments.causal_traceのpredict_from_input
+        char_loc = whole_string.index(substring)
+        p, preds = probs[0, o_index], torch.Tensor(o_index).int()
+        を書き換える。
+        '''''
+        mt = ModelAndTokenizer(
+            model_name,
+            torch_dtype=(torch.float16 if "20b" in model_name else None),
+        )
+
+        # CSVファイルのパス
+        # csv_file_path = 'data/text_data_converted_to_csv.csv'
+        csv_file_path = "data/en2jp_data.csv"
+        df = pd.read_csv(csv_file_path)
+
+    キャッシュを使うか？
+    異なるモデルを使う場合は、return Noneにする
+    一度実行した後は、コメントアウトを戻すことで途中から実行できる。
+        def load_from_cache(filename):
+            # キャッシュを使わないように書き換え
+            try:
+                dat = numpy.load(f"{cache}/{filename}")
+                return {
+                    k: v
+                    if not isinstance(v, numpy.ndarray)
+                    else str(v)
+                    if v.dtype.type is numpy.str_
+                    else torch.from_numpy(v)
+                    for k, v in dat.items()
+                }
+            except FileNotFoundError as e:
+                return None
+            # return None
+
+    層数に対応して書き換える
+        ax.bar(
+            # [i - 0.3 for i in range(48)],
+            [i - 0.3 for i in range(28)],
+            avg_ordinary,
+            width=0.3,
+            color="#7261ab",
+            label="Effect of single state on P",
+        )
+        ax.bar(
+            # [i for i in range(48)],
+            [i for i in range(28)],
+            avg_no_attn,
+            width=0.3,
+            color="#f3201b",
+            label="Effect with Attn severed",
+        )
+        ax.bar(
+            # [i + 0.3 for i in range(48)],
+            [i + 0.3 for i in range(28)],
+            avg_no_mlp,
+            width=0.3,
+            color="#20b020",
+            label="Effect with MLP severed",
+        )
