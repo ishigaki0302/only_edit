@@ -7,7 +7,6 @@ class HyperParams:
     """
     Simple wrapper to store hyperparameters for Python-based rewriting methods.
     """
-
     @classmethod
     def from_json(cls, fpath):
         try:

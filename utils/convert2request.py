@@ -19,7 +19,8 @@ def convert2request(input_file, output_file):
     request = []
     # ---------------------------------------------
     for row in data:
-        prompt, subject, attribute = row
+        # prompt, subject, attribute = row
+        subject, attribute, prompt = row
         request.append({
             "prompt": prompt,
             "subject": subject,
@@ -40,10 +41,10 @@ def convert2request(input_file, output_file):
         json.dump(request, file, indent=4, ensure_ascii=False)
 
 # 使用例
-input_file = 'data/text_data_converted_to_csv.csv'
-output_file = 'data/text_data_converted_to_csv.json'
-# input_file = 'data/en2jp_data.csv'
-# output_file = 'data/en2jp_data.json'
+# input_file = 'data/text_data_converted_to_csv.csv'
+# output_file = 'data/text_data_converted_to_csv.json'
+input_file = 'data/en2jp_data.csv'
+output_file = 'data/en2jp_data.json'
 # input_file = 'data/known_1000.json'
 # output_file = 'data/known_1000_convert.json'
 convert2request(input_file, output_file)
