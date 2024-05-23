@@ -72,6 +72,9 @@ def execute_rome(
     if request["target_new"]["str"][0] != " ":
         # Space required for correct tokenization
         request["target_new"]["str"] = " " + request["target_new"]["str"]
+    if request["target_true"][0] != " ":
+        # Space required for correct tokenization
+        request["target_true"] = " " + request["target_true"]
     print(
         f"Executing ROME algorithm for the update: "
         f"[{request['prompt'].format(request['subject'])}] -> [{request['target_new']['str']}]"
@@ -153,9 +156,9 @@ def upd_matrix_match_shape(matrix: torch.Tensor, shape: torch.Size) -> torch.Ten
 
 def get_context_templates(model, tok, length_params):
     global CONTEXT_TEMPLATES_CACHE
-
-    if CONTEXT_TEMPLATES_CACHE is None:
-        token_ids = tok.encode("<|endoftext|>", add_special_tokens=False, return_tensors="pt")
+    if CONTEXT_TEMPLATES_CACHE is None: # CONTEXT_TEMPLATES_CACHEがNoneの場合、以下の処理を実行
+        token_ids = tok.encode("<|endoftext|>", add_special_tokens=False, return_tensors="pt") # "<|endoftext|>"をトークン化し、テンソルに変換
+        # CONTEXT_TEMPLATES_CACHEに空の文字列と生成されたテンプレートを格納
         CONTEXT_TEMPLATES_CACHE = ["{}"] + [
             x + ". {}"
             for x in sum(
@@ -181,7 +184,5 @@ def get_context_templates(model, tok, length_params):
                 [],
             )
         ]
-
-        print(f"Cached context templates {CONTEXT_TEMPLATES_CACHE}")
-
+        print(f"Cached context templates {CONTEXT_TEMPLATES_CACHE}") # キャッシュされたコンテキストテンプレートを表示
     return CONTEXT_TEMPLATES_CACHE

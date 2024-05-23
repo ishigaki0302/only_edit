@@ -9,7 +9,13 @@ now = datetime.datetime.now()
 # 日時を '年月日_時分秒' の形式でフォーマット
 formatted_date = now.strftime("%Y%m%d_%H%M%S")
 
-mode = "q"
+mode = "f"
+if mode == "f":
+    file_path = f"result/edit_output/{formatted_date}_fill_in_the_blank_format"
+elif mode == "q":
+    file_path = f"result/edit_output/{formatted_date}_Question_format"
+elif mode == "jq":
+    file_path = f"result/edit_output/{formatted_date}_japanese_Question_format"
 if mode == "f":
     data_path = f"data/known_1000_convert.json"
 elif mode == "q":
@@ -21,7 +27,7 @@ with open(data_path, 'r', encoding='utf-8') as f:
     # JSONデータを読み込む
     json_data = json.load(f)
 # 上から10件のデータをdataに格納
-data_set = json_data[:10]
+data_set = json_data[:500]
 
 MODEL_NAME = "gpt2-xl"  # gpt2-{medium,large,xl} or
 # MODEL_NAME = "EleutherAI/gpt-j-6B"
@@ -48,12 +54,6 @@ for data in data_set:
   generation_prompts = [
       f"{subject} is",
   ]
-  if mode == "f":
-      file_path = f"result/edit_output/{formatted_date}_fill_in_the_blank_format"
-  elif mode == "q":
-      file_path = f"result/edit_output/{formatted_date}_Question_format"
-  elif mode == "jq":
-      file_path = f"result/edit_output/{formatted_date}_japanese_Question_format"
   # Execute rewrite
   model_new, orig_weights, old_probs, new_probs, probs_diff = demo_model_editing(
       model, tok, request, generation_prompts, file_path=f"{file_path}.txt"
@@ -61,5 +61,25 @@ for data in data_set:
   all_old_probs.append(old_probs)
   all_new_probs.append(new_probs)
   all_probs_diff.append(probs_diff)
+
+import pickle
+# 配列をファイルに保存
+with open(f"{file_path}_old.pkl", 'wb') as f:
+    pickle.dump(all_old_probs, f)
+# 配列をファイルに保存
+with open(f"{file_path}_new.pkl", 'wb') as f:
+    pickle.dump(all_new_probs, f)
+# 配列をファイルに保存
+with open(f"{file_path}_diff.pkl", 'wb') as f:
+    pickle.dump(all_probs_diff, f)
+# ファイルから配列を読み込む
+# with open(f"{file_path}_old.pkl", 'rb') as f:
+#     all_old_probs = pickle.load(f)
+# # 配列をファイルに保存
+# with open(f"{file_path}_new.pkl", 'rb') as f:
+#     all_new_probs = pickle.load(f)
+# # 配列をファイルに保存
+# with open(f"{file_path}_diff.pkl", 'rb') as f:
+#     all_probs_diff = pickle.load(f)
 
 plot_results(all_old_probs, all_new_probs, all_probs_diff, f"{file_path}.png")

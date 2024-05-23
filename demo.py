@@ -41,12 +41,12 @@ def demo_model_editing(
     hparams = RewritingParamsClass.from_json(params_name)
     print(hparams)
 
-    print_loud("Generating pre-update text")
-    pre_update_text = generate_fast(model, tok, generation_prompts, max_out_len=100)
-    for text in pre_update_text:
-        print_and_save(text, file_path)
-        print_and_save("-"*10, file_path)
-    print_and_save("-"*30, file_path)
+    # print_loud("Generating pre-update text")
+    # pre_update_text = generate_fast(model, tok, generation_prompts, max_out_len=100)
+    # for text in pre_update_text:
+    #     print_and_save(text, file_path)
+    #     print_and_save("-"*10, file_path)
+    # print_and_save("-"*30, file_path)
     # オーダーメイド出力用
     # for prompt in generation_prompts:
     #     token_ids = tok.encode(prompt, add_special_tokens=False, return_tensors="pt")
@@ -71,13 +71,13 @@ def demo_model_editing(
         model, tok, requests, hparams, return_orig_weights=True
     )
 
-    print_loud("Generating post-update text")
-    post_update_text = generate_fast(
-        model_new, tok, generation_prompts, max_out_len=100
-    )
-    for text in post_update_text:
-        print_and_save("-"*10, file_path)
-        print_and_save(text, file_path)
+    # print_loud("Generating post-update text")
+    # post_update_text = generate_fast(
+    #     model_new, tok, generation_prompts, max_out_len=100
+    # )
+    # for text in post_update_text:
+    #     print_and_save("-"*10, file_path)
+    #     print_and_save(text, file_path)
 
     # for i in range(10):
     #     # オーダーメイド出力用

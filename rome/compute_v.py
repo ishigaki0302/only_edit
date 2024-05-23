@@ -152,6 +152,45 @@ def compute_v(
     new_probs = []
     probs_diff = []
 
+    # target_true用
+    # ------------------------------------------------------------------
+    with torch.no_grad():
+        # Forward propagation
+        with nethook.TraceDict(
+            module=model,
+            layers=[
+                hparams.layer_module_tmp.format(loss_layer),
+                hparams.mlp_module_tmp.format(layer),
+            ],
+            retain_input=False,
+            retain_output=True,
+            edit_output=edit_output_fn,
+        ) as tr:
+            logits = model(**input_true_tok).logits
+            # Compute distribution for KL divergence
+            kl_logits = torch.stack(
+                [
+                    logits[i - len(kl_true_prompts), idx, :]
+                    for i, idx in enumerate(lookup_true_idxs[-len(kl_true_prompts) :])
+                ],
+                dim=0,
+            )
+            kl_log_probs = torch.nn.functional.log_softmax(kl_logits, dim=1)
+            if kl_distr_init is None:
+                kl_distr_init = kl_log_probs.detach().clone()
+        # Compute loss on rewriting targets
+        log_probs = torch.log_softmax(logits, dim=2)
+        loss = torch.gather(
+            log_probs,
+            2,
+            torch.where(rewriting_true_targets != -100, rewriting_true_targets, 0).unsqueeze(2),
+        ).squeeze(2)
+        mask = (rewriting_true_targets != -100).float()
+        # Aggregate total losses
+        nll_loss_each = -(loss * mask).sum(1) / target_true_ids.size(0)
+    old_prob = torch.exp(-nll_loss_each).mean().item()
+    # ------------------------------------------------------------------
+
     # Execute optimization
     for it in range(hparams.v_num_grad_steps):
         opt.zero_grad()
@@ -208,8 +247,8 @@ def compute_v(
             f"{torch.exp(-nll_loss_each).mean().item()}"
         )
         new_prob = torch.exp(-nll_loss_each).mean().item()
-        if loss < 5e-2:
-            break
+        # if loss < 5e-2:
+        #     break
         if it == hparams.v_num_grad_steps - 1:
             break
 
@@ -222,7 +261,13 @@ def compute_v(
         if delta.norm() > max_norm:
             with torch.no_grad():
                 delta[...] = delta * max_norm / delta.norm()
-        
+
+        print(f"new_prob: {new_prob}")
+        print(f"old_prob: {old_prob}")
+        new_probs.append(new_prob)
+        old_probs.append(old_prob)
+        probs_diff.append(new_prob - old_prob)
+
         # target_true用
         # ------------------------------------------------------------------
         with torch.no_grad():
@@ -261,12 +306,6 @@ def compute_v(
             nll_loss_each = -(loss * mask).sum(1) / target_true_ids.size(0)
         old_prob = torch.exp(-nll_loss_each).mean().item()
         # ------------------------------------------------------------------
-
-        print(f"old_prob: {old_prob}")
-        print(f"new_prob: {new_prob}")
-        old_probs.append(old_prob)
-        new_probs.append(new_prob)
-        probs_diff.append(new_prob - old_prob)
 
     target = target_init + delta
 

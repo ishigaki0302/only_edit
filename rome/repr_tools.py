@@ -66,7 +66,9 @@ def get_words_idxs_in_templates(
     # Pre-process tokens
     for i, prefix in enumerate(prefixes):
         if len(prefix) > 0:
-            assert prefix[-1] == " "
+            # assert prefix[-1] == " "
+            # アサーションを削除し、prefixの末尾の空白を削除する
+            prefix = prefix.rstrip()
             prefix = prefix[:-1]
 
             prefixes[i] = prefix
