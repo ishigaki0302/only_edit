@@ -14,7 +14,12 @@ from .rome_hparams import ROMEHyperParams
 # Cache variables
 inv_mom2_cache = {}
 
-
+"""
+逆共分散行列の計算
+get_inv_cov 関数は、指定されたレイヤーの共分散統計を取得し、その逆行列を計算しています。
+この逆共分散行列は、モデルの内部表現の統計的性質を捉えるために使用されます。
+逆共分散行列は、モデルの適応や編集の際に、内部表現の調整や変換に利用される可能性があります。
+"""
 def get_inv_cov(
     model: AutoModelForCausalLM,
     tok: AutoTokenizer,
@@ -54,7 +59,12 @@ def get_inv_cov(
 
     return inv_mom2_cache[key]
 
-
+"""
+モデルの編集や適応
+compute_u 関数は、モデルの編集や適応に使用される右ベクトルを計算しています。
+この関数は、特定の単語やトークンに基づいて、モデルの内部表現を調整するためのベクトルを計算しています。
+これは、モデルの出力を特定の方向に誘導したり、モデルの動作を微調整したりするために使用される可能性があります。
+"""
 def compute_u(
     model: AutoModelForCausalLM,
     tok: AutoTokenizer,
@@ -107,14 +117,31 @@ def compute_u(
     # Apply inverse second moment adjustment
     u = cur_repr
     if hparams.mom2_adjustment:
-        u = get_inv_cov(
+        # u = get_inv_cov(
+        #     model,
+        #     tok,
+        #     hparams.rewrite_module_tmp.format(layer),
+        #     hparams.mom2_dataset,
+        #     hparams.mom2_n_samples,
+        #     hparams.mom2_dtype,
+        # ) @ u.unsqueeze(1)
+        # u = u.squeeze()
+        inv_cov = get_inv_cov(
             model,
             tok,
             hparams.rewrite_module_tmp.format(layer),
             hparams.mom2_dataset,
             hparams.mom2_n_samples,
             hparams.mom2_dtype,
-        ) @ u.unsqueeze(1)
+        )
+        print(f"Inverse covariance matrix shape: {inv_cov.shape}")
+        print(f"u vector shape: {u.shape}")
+        
+        # Check if dimensions match
+        if inv_cov.shape[1] != u.shape[0]:
+            raise ValueError(f"Dimension mismatch: inv_cov.shape[1] = {inv_cov.shape[1]}, u.shape[0] = {u.shape[0]}")
+        
+        u = inv_cov @ u.unsqueeze(1)
         u = u.squeeze()
 
     return u / u.norm()

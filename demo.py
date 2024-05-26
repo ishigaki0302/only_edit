@@ -5,7 +5,7 @@ from typing import Dict, List, Tuple
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from rome import ROMEHyperParams, apply_rome_to_model
+from rome import ROMEHyperParams, apply_rome_to_model, val_probs_1
 import utils.nethook as nethook
 from utils.generate import generate_fast
 from utils.globals import *
@@ -27,7 +27,6 @@ def demo_model_editing(
     モデルの振る舞いを比較するために、編集前と編集後のテキストを生成します。
     更新されたモデルと、変更された重みの元の値を返します。
     """
-
     nethook.set_requires_grad(True, model)
     RewritingParamsClass, apply_method, hparams_prefix, hparams_suffix = ROMEHyperParams, apply_rome_to_model, "ROME", ""
     params_name = (
@@ -107,16 +106,24 @@ def demo_model_editing(
     #     print(post)
     #     if i > 0:
     #         print("".join(["-" for _ in range(10)]))
-
     #     prompt_str = "[Prompt]:"
     #     pre_str = f"[Pre-{alg_name}]:"
     #     post_str = f"[Post-{alg_name}]:"
     #     pad_to = 1 + max(len(prompt_str), len(pre_str), len(post_str))
-
     #     for s, t in zip([prompt_str, post_str, pre_str], [prompt, post, pre]):
     #         print_and_save(s.ljust(pad_to) + t, file_path)
-
     return model_new, orig_weights, old_probs, new_probs, probs_diff
+
+def val_probs(model, tok, request):
+    RewritingParamsClass, hparams_prefix, hparams_suffix = ROMEHyperParams, "ROME", ""
+    params_name = (
+        HPARAMS_DIR
+        / hparams_prefix
+        / f"{model.config._name_or_path.replace('/', '_')}{hparams_suffix}.json"
+    )
+    hparams = RewritingParamsClass.from_json(params_name)
+    return val_probs_1(model, tok, request, hparams)
+
 
 def print_loud(x, pad=3):
     """

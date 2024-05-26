@@ -11,6 +11,45 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 import utils.nethook as nethook
 
+def find_last_token(tokenized, name): # トークナイズに失敗している．
+    def conver_strnumber(chars):
+        # 全角数字を半角数字に変換
+        for j in range(len(chars)):
+            if '０' <= chars[j] <= '９':
+                chars[j] = chr(ord(chars[j]) - 0xFEE0)
+        return chars
+    name_chars = conver_strnumber(list(name))
+    name_index = 0
+    token_index = -1
+    for i, token in enumerate(tokenized):
+        token_chars = conver_strnumber(list(token))
+        if token_index == -1:
+            if name_chars[name_index] in token:
+                token_index = token_chars.index(name_chars[name_index])
+                name_index += 1
+                token_index += 1
+                while token_index < len(token_chars):
+                    if name_index == len(name_chars):
+                        return i
+                    if name_chars[name_index] != token_chars[token_index]:
+                        name_index = 0
+                        token_index = -1
+                        break
+                    name_index += 1
+                    token_index += 1
+        else:
+            token_index = 0
+            while token_index < len(token_chars):
+                if name_index == len(name_chars):
+                    return i
+                if name_chars[name_index] != token_chars[token_index]:
+                    name_index = 0
+                    token_index = -1
+                    break
+                name_index += 1
+                token_index += 1
+    return None
+
 
 def get_reprs_at_word_tokens(
     model: AutoModelForCausalLM,
@@ -51,18 +90,15 @@ def get_words_idxs_in_templates(
     これらのテンプレートに、特定の単語やフレーズを挿入します。例えば、上記のテンプレートに「ジョン」を挿入すると、「ジョンはバスケットボールをする」という文章になります。
     その後、挿入された単語やフレーズの「最後のトークン」（プログラミングや自然言語処理における最小の意味単位）の位置を、文章がトークン化（分割）された後で特定します。この例では、「ジョン」の位置を特定することになります。
     """
-
     assert all(
         tmp.count("{}") == 1 for tmp in context_templates
     ), "We currently do not support multiple fill-ins for context"
-
     # Compute prefixes and suffixes of the tokenized context
     fill_idxs = [tmp.index("{}") for tmp in context_templates]
     prefixes, suffixes = [
         tmp[: fill_idxs[i]] for i, tmp in enumerate(context_templates)
     ], [tmp[fill_idxs[i] + 2 :] for i, tmp in enumerate(context_templates)]
     words = deepcopy(words)
-
     # Pre-process tokens
     for i, prefix in enumerate(prefixes):
         if len(prefix) > 0:
@@ -73,7 +109,6 @@ def get_words_idxs_in_templates(
 
             prefixes[i] = prefix
             words[i] = f" {words[i].strip()}"
-
     # Tokenize to determine lengths
     assert len(prefixes) == len(words) == len(suffixes)
     n = len(prefixes)
@@ -86,7 +121,6 @@ def get_words_idxs_in_templates(
         [len(el) for el in tok_list]
         for tok_list in [prefixes_tok, words_tok, suffixes_tok]
     ]
-
     # Compute indices of last tokens
     if subtoken == "last" or subtoken == "first_after_last":
         return [
@@ -131,6 +165,14 @@ def get_words_idxs_in_templates(
 #         for i, token in enumerate(tokenized):
 #             if token == last_word_token:
 #                 last_token_index = i
+#         """
+#         トークナイズが失敗して，subjectが取り出せない．
+#         (Pdb) tokenized
+#         ['▁<', '|', 'end', 'of', 'text', '|', '>', '</s>', '▁', '.', '▁', 'レス', 'リー', '・', 'ムン', 'ヴェ', '
+#         スは', '誰', 'のために', '働', 'い', 'ています', 'か', '?']
+#         """
+#         if last_token_index is None:
+#             last_token_index = find_last_token(tokenized, word)
 #         # Handle the subtoken type
 #         if subtoken == 'last':
 #             last_token_indices.append([last_token_index])
@@ -143,6 +185,7 @@ def get_words_idxs_in_templates(
 #     return last_token_indices
 
 
+# 与えられたコンテキストと指定されたインデックスに基づいて、モデルの特定の層における表現（representation）を取得する関数
 def get_reprs_at_idxs(
     model: AutoModelForCausalLM,
     tok: AutoTokenizer,
@@ -173,10 +216,14 @@ def get_reprs_at_idxs(
     def _process(cur_repr, batch_idxs, key):
         nonlocal to_return
         cur_repr = cur_repr[0] if type(cur_repr) is tuple else cur_repr
+        print(f"Current representation shape: {cur_repr.shape}")  # Debug print
         for i, idx_list in enumerate(batch_idxs):
+            print(f"Batch index: {i}, Index list: {idx_list}")  # Debug print
             to_return[key].append(cur_repr[i][idx_list].mean(0))
+            print(f"Processed representation shape: {to_return[key][-1].shape}")  # Debug print
 
     for batch_contexts, batch_idxs in _batch(n=512):
+        print(f"Batch contexts: {len(batch_contexts)}, Batch indices: {len(batch_idxs)}")  # Debug print
         contexts_tok = tok(batch_contexts, padding=True, return_tensors="pt").to(
             next(model.parameters()).device
         )
@@ -196,8 +243,15 @@ def get_reprs_at_idxs(
             _process(tr.output, batch_idxs, "out")
 
     to_return = {k: torch.stack(v, 0) for k, v in to_return.items() if len(v) > 0}
-
+    print(f"Final return shape: {to_return['in'].shape}")  # Debug print
     if len(to_return) == 1:
         return to_return["in"] if tin else to_return["out"]
     else:
         return to_return["in"], to_return["out"]
+
+# def main():
+#     tokenized = ['▁', 'ム', 'アー', 'ウィ', 'ヤ', '1', '世は', 'どの', '宗教', 'と', '関連', 'し', 'ています', 'か', '?']
+#     word = "ムアーウィヤ１世"
+#     print(find_last_token(tokenized, word))
+
+# main()

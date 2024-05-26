@@ -39,7 +39,6 @@ def make_inputs(tokenizer, prompts, device="cuda"):
     #     attention_mask=token_ids["attention_mask"].to(device)
     # )
 
-
 def compute_v(
     model: AutoModelForCausalLM,
     tok: AutoTokenizer,
@@ -53,9 +52,9 @@ def compute_v(
     Computes the value (right) vector for the rank-1 update.
     Runs a simple optimization procedure.
     """
-
     print("Computing right vector (v)")
-
+    # target_newのinput作成
+    # ------------------------------------------------------
     # Tokenize target into list of int token IDs
     target_ids = tok(request["target_new"]["str"], return_tensors="pt").to("cuda")[
         "input_ids"
@@ -85,7 +84,9 @@ def compute_v(
         )
         for i, prompt in enumerate(all_prompts)
     ]
-
+    # ------------------------------------------------------
+    # target_trueのinput作成
+    # ------------------------------------------------------
     target_true_ids = tok(request["target_true"], return_tensors="pt").to("cuda")[
         "input_ids"
     ][0]
@@ -114,7 +115,7 @@ def compute_v(
         )
         for i, prompt in enumerate(all_true_prompts)
     ]
-
+    # ------------------------------------------------------
     # Finalize rewrite and loss layers
     loss_layer = max(hparams.v_loss_layer, layer)
     print(f"Rewrite layer is {layer}")
@@ -131,17 +132,14 @@ def compute_v(
     # Inserts new "delta" variable at the appropriate part of the computation
     def edit_output_fn(cur_out, cur_layer):
         nonlocal target_init
-
         if cur_layer == hparams.mlp_module_tmp.format(layer):
             # Store initial value of the vector of interest
             if target_init is None:
                 print("Recording initial value of v*")
                 # Initial value is recorded for the clean sentence
                 target_init = cur_out[0, lookup_idxs[0]].detach().clone()
-
             for i, idx in enumerate(lookup_idxs):
                 cur_out[i, idx, :] += delta
-
         return cur_out
 
     # Optimizer
@@ -307,6 +305,50 @@ def compute_v(
         old_prob = torch.exp(-nll_loss_each).mean().item()
         # ------------------------------------------------------------------
 
+    # target_new用
+    # ------------------------------------------------------------------
+    with torch.no_grad():
+        # Forward propagation
+        with nethook.TraceDict(
+            module=model,
+            layers=[
+                hparams.layer_module_tmp.format(loss_layer),
+                hparams.mlp_module_tmp.format(layer),
+            ],
+            retain_input=False,
+            retain_output=True,
+            edit_output=edit_output_fn,
+        ) as tr:
+            logits = model(**input_tok).logits
+            # Compute distribution for KL divergence
+            kl_logits = torch.stack(
+                [
+                    logits[i - len(kl_prompts), idx, :]
+                    for i, idx in enumerate(lookup_idxs[-len(kl_prompts) :])
+                ],
+                dim=0,
+            )
+            kl_log_probs = torch.nn.functional.log_softmax(kl_logits, dim=1)
+            if kl_distr_init is None:
+                kl_distr_init = kl_log_probs.detach().clone()
+        # Compute loss on rewriting targets
+        log_probs = torch.log_softmax(logits, dim=2)
+        loss = torch.gather(
+            log_probs,
+            2,
+            torch.where(rewriting_targets != -100, rewriting_targets, 0).unsqueeze(2),
+        ).squeeze(2)
+        mask = (rewriting_targets != -100).float()
+        # Aggregate total losses
+        nll_loss_each = -(loss * mask).sum(1) / target_ids.size(0)
+        new_prob = torch.exp(-nll_loss_each).mean().item()
+    # ------------------------------------------------------------------
+    print(f"new_prob: {new_prob}")
+    print(f"old_prob: {old_prob}")
+    new_probs.append(new_prob)
+    old_probs.append(old_prob)
+    probs_diff.append(new_prob - old_prob)
+
     target = target_init + delta
 
     # Retrieve cur_input, the current input to the 2nd MLP layer, and
@@ -331,7 +373,6 @@ def compute_v(
     print(f"Right vector norm: {right_vector.norm()}")
 
     return right_vector, old_probs, new_probs, probs_diff
-
 
 def get_module_input_output_at_word(
     model: AutoModelForCausalLM,
@@ -375,7 +416,6 @@ def get_module_input_output_at_word(
     l_input, l_output = l_input[0], l_output[0]
     return l_input.detach(), l_output.detach()
 
-
 def find_fact_lookup_idx(
     prompt: str,
     subject: str,
@@ -409,3 +449,89 @@ def find_fact_lookup_idx(
         )
 
     return ret
+
+def val_probs_2(model: AutoModelForCausalLM, tok: AutoTokenizer, request: Dict, hparams: ROMEHyperParams, context_templates: List[str]):
+    # target_newのinput作成
+    # ------------------------------------------------------
+    # Tokenize target into list of int token IDs
+    target_ids = tok(request["target_new"]["str"], return_tensors="pt").to("cuda")[
+        "input_ids"
+    ][0]
+    # Compile list of rewriting and KL x/y pairs
+    rewriting_prompts, kl_prompts = [
+        context.format(request["prompt"]) + tok.decode(target_ids[:-1])
+        for context in context_templates
+    ], ["{} is a"]
+    all_prompts = rewriting_prompts + kl_prompts
+    input_tok = tok(
+        [prompt.format(request["subject"]) for prompt in all_prompts],
+        return_tensors="pt",
+        padding=True,
+    ).to("cuda")
+    # Compute rewriting targets
+    rewriting_targets = torch.tensor(-100, device="cuda").repeat(
+        len(rewriting_prompts), *input_tok["input_ids"].shape[1:]
+    )
+    for i in range(len(rewriting_prompts)):
+        ex_len = input_tok["attention_mask"][i].sum()
+        rewriting_targets[i, ex_len - len(target_ids) : ex_len] = target_ids
+    # ------------------------------------------------------
+    # target_trueのinput作成
+    # ------------------------------------------------------
+    target_true_ids = tok(request["target_true"], return_tensors="pt").to("cuda")[
+        "input_ids"
+    ][0]
+    # Compile list of rewriting and KL x/y pairs
+    rewriting_true_prompts, kl_true_prompts = [
+        context.format(request["prompt"]) + tok.decode(target_true_ids[:-1])
+        for context in context_templates
+    ], ["{} is a"]
+    all_true_prompts = rewriting_true_prompts + kl_true_prompts
+    input_true_tok = tok(
+        [prompt.format(request["subject"]) for prompt in all_true_prompts],
+        return_tensors="pt",
+        padding=True,
+    ).to("cuda")
+    # Compute rewriting targets
+    rewriting_true_targets = torch.tensor(-100, device="cuda").repeat(
+        len(rewriting_true_prompts), *input_true_tok["input_ids"].shape[1:]
+    )
+    for i in range(len(rewriting_true_prompts)):
+        ex_true_len = input_true_tok["attention_mask"][i].sum()
+        rewriting_true_targets[i, ex_true_len - len(target_true_ids) : ex_true_len] = target_true_ids
+    # ------------------------------------------------------
+    # target_new用
+    # ------------------------------------------------------------------
+    with torch.no_grad():
+        # Forward propagation
+        logits = model(**input_tok).logits
+        # Compute loss on rewriting targets
+        log_probs = torch.log_softmax(logits, dim=2)
+        loss = torch.gather(
+            log_probs,
+            2,
+            torch.where(rewriting_targets != -100, rewriting_targets, 0).unsqueeze(2),
+        ).squeeze(2)
+        mask = (rewriting_targets != -100).float()
+        # Aggregate total losses
+        nll_loss_each = -(loss * mask).sum(1) / target_ids.size(0)
+    new_prob = torch.exp(-nll_loss_each).mean().item()
+    # ------------------------------------------------------------------
+    # target_true用
+    # ------------------------------------------------------------------
+    with torch.no_grad():
+        # Forward propagation
+        logits = model(**input_true_tok).logits
+        # Compute loss on rewriting targets
+        log_probs = torch.log_softmax(logits, dim=2)
+        loss = torch.gather(
+            log_probs,
+            2,
+            torch.where(rewriting_true_targets != -100, rewriting_true_targets, 0).unsqueeze(2),
+        ).squeeze(2)
+        mask = (rewriting_true_targets != -100).float()
+        # Aggregate total losses
+        nll_loss_each = -(loss * mask).sum(1) / target_true_ids.size(0)
+    old_prob = torch.exp(-nll_loss_each).mean().item()
+    # ------------------------------------------------------------------
+    return old_prob, new_prob

@@ -1,5 +1,6 @@
 from copy import deepcopy
 from typing import Dict, List, Tuple
+from statistics import mean
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -8,7 +9,7 @@ import utils.nethook as nethook
 from utils.generate import generate_fast
 
 from .compute_u import compute_u
-from .compute_v import compute_v
+from .compute_v import compute_v, val_probs_2
 from .rome_hparams import ROMEHyperParams
 
 CONTEXT_TEMPLATES_CACHE = None
@@ -24,37 +25,27 @@ def apply_rome_to_model(
 ) -> Tuple[AutoModelForCausalLM, List[str]]:
     """
     Returns a model with the desired changes.
-
     :param copy: If true, will preserve the original model while creating a new one to edit.
         Note that you are responsible for deallocating the new model's memory to avoid leaks.
-
     :return: (1) the updated model, (2) an original copy of the weights that changed
     """
-
     if copy:
         model = deepcopy(model)
-
     weights_copy = {}
-
     for i, request in enumerate(requests):
         deltas, old_probs, new_probs, probs_diff = execute_rome(model, tok, request, hparams)
-
         with torch.no_grad():
             for w_name, (delta_u, delta_v) in deltas.items():
                 upd_matrix = delta_u.unsqueeze(1) @ delta_v.unsqueeze(0)
                 w = nethook.get_parameter(model, w_name)
                 upd_matrix = upd_matrix_match_shape(upd_matrix, w.shape)
-
                 if return_orig_weights and w_name not in weights_copy:
                     assert i == 0
                     weights_copy[w_name] = w.detach().clone()
-
                 w[...] += upd_matrix
-
         print(f"New weights successfully inserted into {list(deltas.keys())}")
 
     return model, weights_copy, old_probs, new_probs, probs_diff
-
 
 def execute_rome(
     model: AutoModelForCausalLM,
@@ -66,7 +57,6 @@ def execute_rome(
     Executes the ROME update algorithm for the specified update at the specified layer
     Invariant: model at beginning of function == model at end of function
     """
-
     # Update target and print info
     request = deepcopy(request)
     if request["target_new"]["str"][0] != " ":
@@ -79,7 +69,6 @@ def execute_rome(
         f"Executing ROME algorithm for the update: "
         f"[{request['prompt'].format(request['subject'])}] -> [{request['target_new']['str']}]"
     )
-
     # Retrieve weights that user desires to change
     weights = {
         f"{hparams.rewrite_module_tmp.format(layer)}.weight": nethook.get_parameter(
@@ -89,7 +78,6 @@ def execute_rome(
     }
     # Save old weights for future restoration
     weights_copy = {k: v.detach().clone() for k, v in weights.items()}
-
     # Update loop: sequentially intervene at each specified layer
     deltas = {}
     for layer in sorted(hparams.layers):
@@ -113,29 +101,26 @@ def execute_rome(
             get_context_templates(model, tok, hparams.context_template_length_params),
         )
         print("Right vector shape:", right_vector.shape)
-
         with torch.no_grad():
             # Determine correct transposition of delta matrix
             weight_name = f"{hparams.rewrite_module_tmp.format(layer)}.weight"
             upd_matrix = left_vector.unsqueeze(1) @ right_vector.unsqueeze(0)
             upd_matrix = upd_matrix_match_shape(upd_matrix, weights[weight_name].shape)
-
             # Update model weights and record desired changes in `delta` variable
             weights[weight_name][...] += upd_matrix
             deltas[weight_name] = (
                 left_vector.detach(),
                 right_vector.detach(),
             )
-
     # Restore state of original model
     with torch.no_grad():
         for k, v in weights.items():
             v[...] = weights_copy[k]
-
     print(f"Deltas successfully computed for {list(weights.keys())}")
-
     return deltas, old_probs, new_probs, probs_diff
 
+def val_probs_1(model, tok, request, hparams):
+    return val_probs_2(model, tok, request, hparams, get_context_templates(model, tok, hparams.context_template_length_params))
 
 def upd_matrix_match_shape(matrix: torch.Tensor, shape: torch.Size) -> torch.Tensor:
     """
@@ -152,7 +137,6 @@ def upd_matrix_match_shape(matrix: torch.Tensor, shape: torch.Size) -> torch.Ten
             "Update matrix computed by ROME does not match original weight shape. "
             "Check for bugs in the code?"
         )
-
 
 def get_context_templates(model, tok, length_params):
     global CONTEXT_TEMPLATES_CACHE
