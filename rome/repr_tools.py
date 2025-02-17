@@ -66,7 +66,6 @@ def get_reprs_at_word_tokens(
     when `word` is substituted into `context_template`. See `get_last_word_idx_in_template`
     for more details.
     """
-
     idxs = get_words_idxs_in_templates(tok, context_templates, words, subtoken)
     return get_reprs_at_idxs(
         model,
@@ -199,11 +198,9 @@ def get_reprs_at_idxs(
     Runs input through model and returns averaged representations of the tokens
     at each index in `idxs`.
     """
-
     def _batch(n):
         for i in range(0, len(contexts), n):
             yield contexts[i : i + n], idxs[i : i + n]
-
     assert track in {"in", "out", "both"}
     both = track == "both"
     tin, tout = (
@@ -212,7 +209,6 @@ def get_reprs_at_idxs(
     )
     module_name = module_template.format(layer)
     to_return = {"in": [], "out": []}
-
     def _process(cur_repr, batch_idxs, key):
         nonlocal to_return
         cur_repr = cur_repr[0] if type(cur_repr) is tuple else cur_repr
@@ -221,13 +217,11 @@ def get_reprs_at_idxs(
             print(f"Batch index: {i}, Index list: {idx_list}")  # Debug print
             to_return[key].append(cur_repr[i][idx_list].mean(0))
             print(f"Processed representation shape: {to_return[key][-1].shape}")  # Debug print
-
     for batch_contexts, batch_idxs in _batch(n=512):
         print(f"Batch contexts: {len(batch_contexts)}, Batch indices: {len(batch_idxs)}")  # Debug print
         contexts_tok = tok(batch_contexts, padding=True, return_tensors="pt").to(
             next(model.parameters()).device
         )
-
         with torch.no_grad():
             with nethook.Trace(
                 module=model,
@@ -236,12 +230,10 @@ def get_reprs_at_idxs(
                 retain_output=tout,
             ) as tr:
                 model(**contexts_tok)
-
         if tin:
             _process(tr.input, batch_idxs, "in")
         if tout:
             _process(tr.output, batch_idxs, "out")
-
     to_return = {k: torch.stack(v, 0) for k, v in to_return.items() if len(v) > 0}
     print(f"Final return shape: {to_return['in'].shape}")  # Debug print
     if len(to_return) == 1:

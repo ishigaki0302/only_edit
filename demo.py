@@ -5,7 +5,7 @@ from typing import Dict, List, Tuple
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from rome import ROMEHyperParams, apply_rome_to_model, val_probs_1
+from rome import ROMEHyperParams, apply_rome_to_model
 import utils.nethook as nethook
 from utils.generate import generate_fast
 from utils.globals import *
@@ -17,7 +17,8 @@ def demo_model_editing(
     tok: AutoTokenizer,
     requests: List[Dict],
     generation_prompts: List[str],
-    file_path: str = "result/edit_output/test.txt"
+    file_path: str = "result/edit_output/test.txt",
+    data_set=[]
 ) -> Tuple[AutoModelForCausalLM, Dict[str, torch.Tensor]]:
     """
     Applies the selected model editing algorithm. Generates text both before and after
@@ -40,12 +41,13 @@ def demo_model_editing(
     hparams = RewritingParamsClass.from_json(params_name)
     print(hparams)
 
-    # print_loud("Generating pre-update text")
-    # pre_update_text = generate_fast(model, tok, generation_prompts, max_out_len=100)
-    # for text in pre_update_text:
-    #     print_and_save(text, file_path)
-    #     print_and_save("-"*10, file_path)
-    # print_and_save("-"*30, file_path)
+    print_loud("Generating pre-update text")
+    pre_update_text = generate_fast(model, tok, generation_prompts, max_out_len=100)
+    for text in pre_update_text:
+        print_and_save(text, file_path)
+        print_and_save("-"*10, file_path)
+    print_and_save("-"*30, file_path)
+
     # オーダーメイド出力用
     # for prompt in generation_prompts:
     #     token_ids = tok.encode(prompt, add_special_tokens=False, return_tensors="pt")
@@ -55,7 +57,7 @@ def demo_model_editing(
     #             do_sample=True,
     #             max_new_tokens=100,
     #             min_new_tokens=100,
-    #             temperature=1,
+    #             temperature=0.7,
     #             pad_token_id=tok.pad_token_id,
     #             bos_token_id=tok.bos_token_id,
     #             eos_token_id=tok.eos_token_id
@@ -66,18 +68,20 @@ def demo_model_editing(
     #     print_and_save(pre_update_text, file_path)
 
     print_loud(f"Applying ROME to model")
-    model_new, orig_weights, old_probs, new_probs, probs_diff = apply_method(
-        model, tok, requests, hparams, return_orig_weights=True
+    model_new, orig_weights, old_probs, new_probs, probs_diff, history_effect_old_probs, history_effect_new_probs = apply_method(
+        model, tok, requests, hparams, return_orig_weights=True, data_set=data_set, file_path=file_path
     )
 
-    # print_loud("Generating post-update text")
-    # post_update_text = generate_fast(
-    #     model_new, tok, generation_prompts, max_out_len=100
-    # )
-    # for text in post_update_text:
-    #     print_and_save("-"*10, file_path)
-    #     print_and_save(text, file_path)
+    print_loud("Generating post-update text")
+    for i in range(10):
+        post_update_text = generate_fast(
+            model_new, tok, generation_prompts, max_out_len=100
+        )
+        for text in post_update_text:
+            print_and_save("-"*10, file_path)
+            print_and_save(text, file_path)
 
+    # print_and_save("-"*30, file_path)
     # for i in range(10):
     #     # オーダーメイド出力用
     #     for prompt in generation_prompts:
@@ -88,7 +92,7 @@ def demo_model_editing(
     #                 do_sample=True,
     #                 max_new_tokens=100,
     #                 min_new_tokens=100,
-    #                 temperature=1,
+    #                 temperature=0.7,
     #                 pad_token_id=tok.pad_token_id,
     #                 bos_token_id=tok.bos_token_id,
     #                 eos_token_id=tok.eos_token_id
@@ -96,6 +100,7 @@ def demo_model_editing(
     #         # post_update_text = tok.decode(output_ids.tolist()[0][token_ids.size(1):])
     #         post_update_text = tok.decode(output_ids.tolist()[0])
     #         post_update_text = post_update_text.replace("<NL>", "\n")
+    #         print_and_save("-"*10, file_path)
     #         print_and_save(post_update_text, file_path)
 
     # print_loud("Summarizing differences")
@@ -112,18 +117,7 @@ def demo_model_editing(
     #     pad_to = 1 + max(len(prompt_str), len(pre_str), len(post_str))
     #     for s, t in zip([prompt_str, post_str, pre_str], [prompt, post, pre]):
     #         print_and_save(s.ljust(pad_to) + t, file_path)
-    return model_new, orig_weights, old_probs, new_probs, probs_diff
-
-def val_probs(model, tok, request):
-    RewritingParamsClass, hparams_prefix, hparams_suffix = ROMEHyperParams, "ROME", ""
-    params_name = (
-        HPARAMS_DIR
-        / hparams_prefix
-        / f"{model.config._name_or_path.replace('/', '_')}{hparams_suffix}.json"
-    )
-    hparams = RewritingParamsClass.from_json(params_name)
-    return val_probs_1(model, tok, request, hparams)
-
+    return model_new, orig_weights, old_probs, new_probs, probs_diff, history_effect_old_probs, history_effect_new_probs
 
 def print_loud(x, pad=3):
     """
