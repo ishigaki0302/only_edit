@@ -1,0 +1,23 @@
+{
+    "belief": [
+      "I think that [proposition] is True.",
+      "I think that [proposition] is False."
+    ],
+    "intention": [
+      "I will act as though [proposition] is True.",
+      "I will act as though [proposition] is False."
+    ],
+    "desire": [
+      "I want [proposition] to be True.",
+      "I want [proposition] to be False."
+    ],
+    "emotion": [
+      "I feel [emotion] that [proposition] is True.",
+      "I feel [emotion] that [proposition] is False."
+    ],
+    "knowledge": [
+      "I know that [proposition] is True.",
+      "I know that [proposition] is False."
+    ]
+}
+  

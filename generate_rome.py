@@ -76,45 +76,51 @@ for iter, data in enumerate(data_set):
     # ------------------------------------------------
     # ステップ数固定
     # ------------------------------------------------
-    # モデル及びトークナイザの呼び出し
-    model, tok = (
-        AutoModelForCausalLM.from_pretrained(MODEL_NAME).to("cuda:0"),
-        AutoTokenizer.from_pretrained(MODEL_NAME),
-        # AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False),
-    )
-    tok.pad_token = tok.eos_token
-    # 書き換えデータの作成
-    request = [data]
-    subject = data["subject"]
-    generation_prompts = get_generation_prompts(mode, data)
-    # ROMEの実行
-    model, orig_weights, old_probs, new_probs, probs_diff, history_effect_old_probs, history_effect_new_probs = demo_model_editing(
-        model, tok, request, generation_prompts, file_path=f"{file_path}_index_{iter}.txt", data_set=data_set
-    )
-    model.to("cpu")
+    # # モデル及びトークナイザの呼び出し
+    # model, tok = (
+    #     AutoModelForCausalLM.from_pretrained(MODEL_NAME).to("cuda:0"),
+    #     AutoTokenizer.from_pretrained(MODEL_NAME),
+    #     # AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False),
+    # )
+    # tok.pad_token = tok.eos_token
+    # # 書き換えデータの作成
+    # request = [data]
+    # subject = data["subject"]
+    # generation_prompts = get_generation_prompts(mode, data)
+    # # ROMEの実行
+    # model, orig_weights, old_probs, new_probs, probs_diff, history_effect_old_probs, history_effect_new_probs = demo_model_editing(
+    #     model, tok, request, generation_prompts, file_path=f"{file_path}_index_{iter}.txt", data_set=data_set
+    # )
+    # model.to("cpu")
     # ------------------------------------------------
     # 各ステップごとの値を算出
     # ------------------------------------------------
-    # for i in range(20):
-    #     # モデル及びトークナイザの呼び出し
-    #     model, tok = (
-    #         AutoModelForCausalLM.from_pretrained(MODEL_NAME).to("cuda:0"),
-    #         AutoTokenizer.from_pretrained(MODEL_NAME),
-    #         # AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False),
-    #     )
-    #     tok.pad_token = tok.eos_token
-    #     # 書き換えデータの作成
-    #     request = [data]
-    #     subject = data["subject"]
-    #     generation_prompts = get_generation_prompts(mode, data)
-    #     if not os.path.exists(f"{file_path}_index_{iter}"):
-    #         # ディレクトリが存在しない場合、ディレクトリを作成する
-    #         os.makedirs(f"{file_path}_index_{iter}")
-    #     # ROMEの実行
-    #     model, orig_weights, old_probs, new_probs, probs_diff, history_effect_old_probs, history_effect_new_probs = demo_model_editing(
-    #         model, tok, request, generation_prompts, file_path=f"{file_path}_index_{iter}/{i+1}step.txt", data_set=data_set
-    #     )
-    #     model.to("cpu")
-    #     change_json(f"hparams/ROME/{name}.json", "v_num_grad_steps", 1)
-    # change_json(f"hparams/ROME/{name}.json", "v_num_grad_steps", -20)
+    for i in range(20):
+        # モデル及びトークナイザを毎回ロードしてGPUへ配置
+        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME).to("cuda:0")
+        tok = AutoTokenizer.from_pretrained(MODEL_NAME)
+        tok.pad_token = tok.eos_token
+
+        # 書き換えデータの作成
+        request = [data]
+        generation_prompts = get_generation_prompts(mode, data)
+
+        # 出力用ディレクトリの作成（存在しない場合）
+        index_dir = f"{file_path}_index_{iter}"
+        if not os.path.exists(index_dir):
+            os.makedirs(index_dir)
+
+        # ROMEの実行（モデル編集関数）
+        model, orig_weights, old_probs, new_probs, probs_diff, history_effect_old_probs, history_effect_new_probs = demo_model_editing(
+            model, tok, request, generation_prompts, file_path=f"{index_dir}/{i+1}step.txt", data_set=data_set
+        )
+
+        # GPUメモリの解放
+        model.to("cpu")
+        del model, tok  # 不要な参照を削除
+        torch.cuda.empty_cache()  # キャッシュクリア
+
+        # ハイパーパラメータの更新（各ステップ毎にv_num_grad_stepsを1増やす）
+        change_json(f"hparams/ROME/{name}.json", "v_num_grad_steps", 1)
+    change_json(f"hparams/ROME/{name}.json", "v_num_grad_steps", -20)
     # ------------------------------------------------

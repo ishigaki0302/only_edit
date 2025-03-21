@@ -1,0 +1,22 @@
+{
+    "belief": [
+      "I think that he/she thinks that [proposition] is True.",
+      "I think that he/she thinks that [proposition] is False."
+    ],
+    "intention": [
+      "I think that he/she will act as though [proposition] is True.",
+      "I think that he/she will act as though [proposition] is False."
+    ],
+    "desire": [
+      "I think that he/she wants [proposition] to be True.",
+      "I think that he/she wants [proposition] to be False."
+    ],
+    "emotion": [
+      "I think that he/she feels [emotion] that [proposition] is True.",
+      "I think that he/she feels [emotion] that [proposition] is False."
+    ],
+    "knowledge": [
+      "I think that he/she knows that [proposition] is True.",
+      "I think that he/she knows that [proposition] is False."
+    ]
+}  

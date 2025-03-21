@@ -24,8 +24,8 @@ MODEL_NAMES = [
 MODEL_NAME = MODEL_NAMES[1]
 name = MODEL_NAME.replace("/","_")
 
-import wandb
-wandb.init(project="editing-evaluate", name=f"{name}:{formatted_date}", entity="dsml-kernel24")
+# import wandb
+# wandb.init(project="editing-evaluate", name=f"{name}:{formatted_date}", entity="dsml-kernel24")
 
 # モード設定
 MODE_SETTINGS = {
@@ -61,7 +61,7 @@ with open(data_path, 'r', encoding='utf-8') as f:
     # JSONデータを読み込む
     json_data = json.load(f)
 # 上から10件のデータをdataに格納
-data_set = json_data[:100]
+data_set = json_data[:500]
 
 # # データをシャッフル
 # random.shuffle(data_set)
@@ -112,20 +112,20 @@ for step, data in enumerate(data_set):
     all_history_effect_new_probs.append(history_effect_new_probs)
     # 各データをwandbに送信
     data = [[x, y] for (x, y) in zip(np.arange(len(old_probs)), old_probs)]
-    table = wandb.Table(data=data, columns=["Step", "P(o)"])
-    wandb.log(
-        {"old_probs_graph": wandb.plot.line(table, "Step", "P(o)",
-            title="P(o) Graph")}, step=step)
-    data = [[x, y] for (x, y) in zip(np.arange(len(new_probs)), new_probs)]
-    table = wandb.Table(data=data, columns=["Step", "P(o*)"])
-    wandb.log(
-        {"new_probs_graph": wandb.plot.line(table, "Step", "P(o*)",
-            title="P(o*) Graph")}, step=step)
-    data = [[x, y] for (x, y) in zip(np.arange(len(probs_diff)), probs_diff)]
-    table = wandb.Table(data=data, columns=["Step", "P(o*) - P(o)"])
-    wandb.log(
-        {"probs_diff_graph": wandb.plot.line(table, "Step", "P(o*) - P(o)",
-            title="P(o*) - P(o) Graph")}, step=step)
+    # table = wandb.Table(data=data, columns=["Step", "P(o)"])
+    # wandb.log(
+    #     {"old_probs_graph": wandb.plot.line(table, "Step", "P(o)",
+    #         title="P(o) Graph")}, step=step)
+    # data = [[x, y] for (x, y) in zip(np.arange(len(new_probs)), new_probs)]
+    # table = wandb.Table(data=data, columns=["Step", "P(o*)"])
+    # wandb.log(
+    #     {"new_probs_graph": wandb.plot.line(table, "Step", "P(o*)",
+    #         title="P(o*) Graph")}, step=step)
+    # data = [[x, y] for (x, y) in zip(np.arange(len(probs_diff)), probs_diff)]
+    # table = wandb.Table(data=data, columns=["Step", "P(o*) - P(o)"])
+    # wandb.log(
+    #     {"probs_diff_graph": wandb.plot.line(table, "Step", "P(o*) - P(o)",
+    #         title="P(o*) - P(o) Graph")}, step=step)
     # # 元のモデルをGPUから降ろす
     # model.to("cpu")
     # torch.cuda.empty_cache()

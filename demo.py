@@ -73,7 +73,7 @@ def demo_model_editing(
     )
 
     print_loud("Generating post-update text")
-    for i in range(10):
+    for i in range(1):
         post_update_text = generate_fast(
             model_new, tok, generation_prompts, max_out_len=100
         )

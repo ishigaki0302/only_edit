@@ -1,0 +1,37 @@
+{
+    "belief": [
+      {"proposition": "I care about my health and make an effort to eat vegetables every day"},
+      {"proposition": "I like spending weekends relaxing at home"},
+      {"proposition": "I am interested in the recent advancements in AI technology"},
+      {"proposition": "I want to work abroad in the future"},
+      {"proposition": "Music enriches the heart"}
+    ],
+    "intention": [
+      {"proposition": "I plan to explore a new restaurant this weekend"},
+      {"proposition": "I am planning a trip with friends next month"},
+      {"proposition": "I intend to try a new recipe tonight"},
+      {"proposition": "I plan to go to the gym and exercise tomorrow"},
+      {"proposition": "I want to finish all the pending work this week"}
+    ],
+    "desire": [
+      {"proposition": "Having a new smartphone"},
+      {"proposition": "Living in a spacious and quiet room"},
+      {"proposition": "Being free from stress and taking a good rest"},
+      {"proposition": "Traveling around the world"},
+      {"proposition": "Eating a lot of delicious food"}
+    ],
+    "emotion": [
+      {"emotion": "tired", "proposition": "I have been busy with work recently"},
+      {"emotion": "good", "proposition": "The weather is nice today"},
+      {"emotion": "excited", "proposition": "I made a new discovery"},
+      {"emotion": "grateful", "proposition": "I spent fun times with my friends"},
+      {"emotion": "a bit down", "proposition": "I remembered past failures"}
+    ],
+    "knowledge": [
+      {"proposition": "There are several delicious ramen shops in Tokyo"},
+      {"proposition": "I remember several Italian recipes"},
+      {"proposition": "I have the ability to carry on daily conversations in English"},
+      {"proposition": "I want to deepen my knowledge of the latest AI technologies"},
+      {"proposition": "I enjoy reading historical novels and have a wealth of knowledge about history"}
+    ]
+}
