@@ -16,9 +16,9 @@ for rec in records:
     target_true = rec["target_true"]
     target_true_lower = target_true.lower()
     found_category = None
-    # o.json内の各カテゴリをチェック（大文字小文字無視して比較）
+    # o.json内の各カテゴリをチェック（大文字小文字を区別して比較）
     for category, items in categories.items():
-        if any(item.lower() == target_true_lower for item in items):
+        if any(item == target_true for item in items):
             found_category = items
             break
     if found_category:
@@ -35,5 +35,5 @@ for rec in records:
         print(f"Warning: '{target_true}' はどのカテゴリにも見つかりませんでした。")
 
 # 更新後のknown_1000_convert.jsonを書き出し
-with open("data/known_1000_convert.json", "w", encoding="utf-8") as f:
+with open(file_path, "w", encoding="utf-8") as f:
     json.dump(records, f, ensure_ascii=False, indent=2)
