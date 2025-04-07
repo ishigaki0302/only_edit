@@ -156,8 +156,8 @@ def get_context_templates(model, tok, length_params):
                     generate_fast(
                         model,
                         tok,
-                        # ["<|endoftext|>"],
-                        ["<s>"],
+                        ["<|endoftext|>"],
+                        # ["<s>"],
                         n_gen_per_prompt=n_gen,
                         max_out_len=length,
                     )
