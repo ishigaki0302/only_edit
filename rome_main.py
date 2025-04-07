@@ -18,7 +18,8 @@ mode = "q"
 # /home/ishigaki/IshigakiWorkspace/my_research/ROME_server/rome/rome/compute_v.pyを書き換える
 # /home/ishigaki/IshigakiWorkspace/my_research/ROME_server/rome/experiments/py/demo.pyを書き換える
 # MODEL_NAME = "gpt2-xl"  # gpt2-{medium,large,xl} or 
-MODEL_NAME = "EleutherAI/gpt-j-6B"
+# MODEL_NAME = "EleutherAI/gpt-j-6B"
+MODEL_NAME = "meta-llama/Llama-3.2-3B"
 # MODEL_NAME = "rinna/japanese-gpt-neox-3.6b"
 # MODEL_NAME = "cyberagent/open-calm-7b"
 # MODEL_NAME = "rinna/japanese-gpt-neox-3.6b-instruction-sft"

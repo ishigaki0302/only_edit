@@ -92,46 +92,72 @@ def get_words_idxs_in_templates(
     assert all(
         tmp.count("{}") == 1 for tmp in context_templates
     ), "We currently do not support multiple fill-ins for context"
+    # print("=== 入力 ===")
+    # print("context_templates:", context_templates)
+    # print("words:", words)
+    # print("subtoken:", subtoken)
     # Compute prefixes and suffixes of the tokenized context
     fill_idxs = [tmp.index("{}") for tmp in context_templates]
+    # print("fill_idxs:", fill_idxs)
     prefixes, suffixes = [
         tmp[: fill_idxs[i]] for i, tmp in enumerate(context_templates)
     ], [tmp[fill_idxs[i] + 2 :] for i, tmp in enumerate(context_templates)]
+    # print("初期 prefixes:", prefixes)
+    # print("初期 suffixes:", suffixes)
     words = deepcopy(words)
     # Pre-process tokens
     for i, prefix in enumerate(prefixes):
+        # print(f"--- テンプレート {i} ---")
+        # print("元の prefix:", repr(prefix))
         if len(prefix) > 0:
             # assert prefix[-1] == " "
             # アサーションを削除し、prefixの末尾の空白を削除する
             prefix = prefix.rstrip()
+            # print("rstrip 後の prefix:", repr(prefix))
             prefix = prefix[:-1]
+            # print("最後の1文字削除後の prefix:", repr(prefix))
 
             prefixes[i] = prefix
+            original_word = words[i]
             words[i] = f" {words[i].strip()}"
+            # print(f"words[{i}] 変更前: {repr(original_word)}, 変更後: {repr(words[i])}")
+    # print("最終的な prefixes:", prefixes)
+    # print("最終的な words:", words)
+    # print("suffixes (変更なし):", suffixes)
     # Tokenize to determine lengths
     assert len(prefixes) == len(words) == len(suffixes)
     n = len(prefixes)
+    # print("テンプレート数 n:", n)
     # batch_tok = tok([*prefixes, *words, *suffixes]) 今までのコード（トークナイザーの設定的にattentionマスクも含まれているので直す必要があった．）
-    batch_tok = tok([*prefixes, *words, *suffixes])["input_ids"]
+    batch = [*prefixes, *words, *suffixes]
+    # print("トークナイザーへの入力バッチ:", batch)
+    batch_tok = tok(batch)["input_ids"]
+    # print("トークナイズ結果 (batch_tok):", batch_tok)
     prefixes_tok, words_tok, suffixes_tok = [
         batch_tok[i : i + n] for i in range(0, n * 3, n)
     ]
+    # print("トークナイズされた prefixes_tok:", prefixes_tok)
+    # print("トークナイズされた words_tok:", words_tok)
+    # print("トークナイズされた suffixes_tok:", suffixes_tok)
     prefixes_len, words_len, suffixes_len = [
         [len(el) for el in tok_list]
         for tok_list in [prefixes_tok, words_tok, suffixes_tok]
     ]
+    # print("prefixes の各トークン列の長さ:", prefixes_len)
+    # print("words の各トークン列の長さ:", words_len)
+    # print("suffixes の各トークン列の長さ:", suffixes_len)
     # Compute indices of last tokens
+    # 最後のトークンのインデックスを計算
+    ret = []
+    for i in range(n):
+        last_index = prefixes_len[i] + words_len[i]
+        if subtoken == "last" or suffixes_len[i] == 0:
+            last_index -= 1
+        ret.append([last_index])
+        # print(f"テンプレート {i} の最終トークンインデックス:", last_index)
+    # print("最終結果 ret:", ret)
     if subtoken == "last" or subtoken == "first_after_last":
-        return [
-            [
-                prefixes_len[i]
-                + words_len[i]
-                - (1 if subtoken == "last" or suffixes_len[i] == 0 else 0)
-            ]
-            for i in range(n)
-            # If suffix is empty, there is no "first token after the last".
-            # So, just return the last token of the word.
-        ]
+        return ret
     elif subtoken == "first":
         return [[prefixes_len[i]] for i in range(n)]
     else:

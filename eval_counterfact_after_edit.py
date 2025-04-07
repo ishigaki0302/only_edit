@@ -10,9 +10,23 @@ import nltk
 import scipy.stats
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from sklearn.feature_extraction.text import TfidfVectorizer
+from demo import demo_model_editing
+from utils.plot_results import plot_results
+from utils.check_model import get_token_probability
 
 # nltk 必要リソースのダウンロード（初回のみ）
 nltk.download('punkt')
+
+# --- ヘルパー関数：NumPy 型を標準の Python 型に変換 ---
+def convert_numpy_types(obj):
+    if isinstance(obj, np.generic):
+        return obj.item()
+    elif isinstance(obj, dict):
+        return {k: convert_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(i) for i in obj]
+    else:
+        return obj
 
 # --- 以下、評価用ユーティリティ関数群 ---
 
@@ -122,9 +136,12 @@ def compute_rewrite_quality_counterfact_extended(model, tok, record, snips, vec)
     subject = record["requested_rewrite"]["subject"]
     target_new = record["requested_rewrite"]["target_new"]
     target_true = record["requested_rewrite"]["target_true"]
+
+    # ここで入力プロンプトから subject を抽出して "{}" で置換する
+    input_prompt = record["requested_rewrite"]["prompt"]
+    prompt_template = input_prompt.replace(subject, "{}")
+    rewrite_prompts = [prompt_template]
     
-    # プロンプト作成（subject をプロンプト内に埋め込む）
-    rewrite_prompts = [record["requested_rewrite"]["prompt"].format(subject)]
     paraphrase_prompts = record.get("paraphrase_prompts", [])
     neighborhood_prompts = record.get("neighborhood_prompts", [])
     generation_prompts = record.get("generation_prompts", [])
@@ -139,7 +156,7 @@ def compute_rewrite_quality_counterfact_extended(model, tok, record, snips, vec)
     for group_name, prompts in groups.items():
         if len(prompts) == 0:
             continue
-        preds = test_batch_prediction(model, tok, prompts, target_new["str"], target_true["str"])
+        preds = test_batch_prediction(model, tok, prompts, target_new["str"], target_true)
         # 各予測は {"target_new": score, "target_true": score} となっている
         if group_name in ["rewrite", "paraphrase"]:
             # 編集が成功していれば、target_new の負の対数確率が target_true より低い（＝確率が高い）
@@ -220,9 +237,14 @@ def main():
     for idx, record in enumerate(records):
         print(f"[{idx}] 評価中: subject = {record['requested_rewrite']['subject']}")
         torch.cuda.empty_cache()
+
+        # 各回ごとにモデルを初期化（毎回新しいインスタンスをロード）
+        model = AutoModelForCausalLM.from_pretrained(args.model_name).to(device)
+        model.eval()
         
         # ROME 編集の実行（demo_model_editing を利用）
         request = [record["requested_rewrite"]]
+        request[0]["target_true"] = request[0]["target_true"]["str"]
         generation_prompts = record.get("generation_prompts", [])
         edit_log_file = f"{base_output_dir}/edit_log_{idx}.txt"
         # demo_model_editing の戻り値のうち、編集後のモデルを使用
@@ -235,13 +257,15 @@ def main():
             "subject": record["requested_rewrite"]["subject"],
             "metrics": metrics
         }
+        result_record = convert_numpy_types(result_record)
         results.append(result_record)
         
         # 各レコードごとの結果を JSON として保存
         with open(f"{base_output_dir}/cf_eval_index_{idx}.json", "w", encoding="utf-8") as fout:
-            json.dump(result_record, fout, indent=2, ensure_ascii=False)
+            json.dump(convert_numpy_types(results), fout, indent=2, ensure_ascii=False)
         
         edited_model.to("cpu")
+        del model, edited_model
         torch.cuda.empty_cache()
     
     # 集約結果を保存

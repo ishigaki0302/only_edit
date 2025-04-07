@@ -24,6 +24,7 @@ def apply_rome_to_model(
     return_orig_weights=False,
     data_set=[],
     file_path: str = "result/edit_output/test.txt",
+    step = None
 ) -> Tuple[AutoModelForCausalLM, List[str]]:
     """
     Returns a model with the desired changes.
@@ -35,7 +36,7 @@ def apply_rome_to_model(
         model = deepcopy(model)
     weights_copy = {}
     for i, request in enumerate(requests):
-        deltas, old_probs, new_probs, probs_diff, history_effect_old_probs, history_effect_new_probs = execute_rome(model, tok, request, hparams, data_set, file_path)
+        deltas, old_probs, new_probs, probs_diff, history_effect_old_probs, history_effect_new_probs = execute_rome(model, tok, request, hparams, data_set, file_path, step)
         with torch.no_grad():
             for w_name, (delta_u, delta_v) in deltas.items():
                 upd_matrix = delta_u.unsqueeze(1) @ delta_v.unsqueeze(0)
@@ -56,6 +57,7 @@ def execute_rome(
     hparams: ROMEHyperParams,
     data_set,
     file_path: str = "result/edit_output/test.txt",
+    step=None
 ) -> Dict[str, Tuple[torch.Tensor]]:
     """
     Executes the ROME update algorithm for the specified update at the specified layer
@@ -66,9 +68,9 @@ def execute_rome(
     if request["target_new"]["str"][0] != " ":
         # Space required for correct tokenization
         request["target_new"]["str"] = " " + request["target_new"]["str"]
-    # if request["target_true"][0] != " ":
-    #     # Space required for correct tokenization
-    #     request["target_true"] = " " + request["target_true"]
+    if request["target_true"][0] != " ":
+        # Space required for correct tokenization
+        request["target_true"] = " " + request["target_true"]
     print(
         f"Executing ROME algorithm for the update: "
         f"[{request['prompt'].format(request['subject'])}] -> [{request['target_new']['str']}]"
@@ -104,7 +106,8 @@ def execute_rome(
             left_vector,
             get_context_templates(model, tok, hparams.context_template_length_params),
             data_set,
-            file_path
+            file_path,
+            step
         )
         print("Right vector shape:", right_vector.shape)
         with torch.no_grad():
@@ -153,7 +156,8 @@ def get_context_templates(model, tok, length_params):
                     generate_fast(
                         model,
                         tok,
-                        ["<|endoftext|>"],
+                        # ["<|endoftext|>"],
+                        ["<s>"],
                         n_gen_per_prompt=n_gen,
                         max_out_len=length,
                     )

@@ -18,7 +18,8 @@ def demo_model_editing(
     requests: List[Dict],
     generation_prompts: List[str],
     file_path: str = "result/edit_output/test.txt",
-    data_set=[]
+    data_set=[],
+    step = None
 ) -> Tuple[AutoModelForCausalLM, Dict[str, torch.Tensor]]:
     """
     Applies the selected model editing algorithm. Generates text both before and after
@@ -69,7 +70,7 @@ def demo_model_editing(
 
     print_loud(f"Applying ROME to model")
     model_new, orig_weights, old_probs, new_probs, probs_diff, history_effect_old_probs, history_effect_new_probs = apply_method(
-        model, tok, requests, hparams, return_orig_weights=True, data_set=data_set, file_path=file_path
+        model, tok, requests, hparams, return_orig_weights=True, data_set=data_set, file_path=file_path, step=step
     )
 
     print_loud("Generating post-update text")

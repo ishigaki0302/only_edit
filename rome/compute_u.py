@@ -90,11 +90,12 @@ def compute_u(
     if "subject_" in hparams.fact_token and hparams.fact_token.index("subject_") == 0:
         word = request["subject"]
         print(f"Selected u projection object {word}")
+        words = [word for _ in range(len(context_templates))]
         cur_repr = repr_tools.get_reprs_at_word_tokens(
             context_templates=[
                 templ.format(request["prompt"]) for templ in context_templates
             ],
-            words=[word for _ in range(len(context_templates))],
+            words=words,
             subtoken=hparams.fact_token[len("subject_") :],
             **word_repr_args,
         ).mean(0)
@@ -115,7 +116,7 @@ def compute_u(
         raise ValueError(f"fact_token={hparams.fact_token} not recognized")
 
     # Apply inverse second moment adjustment
-    u = cur_repr
+    # u = cur_repr
     if hparams.mom2_adjustment:
         # u = get_inv_cov(
         #     model,
@@ -135,13 +136,13 @@ def compute_u(
             hparams.mom2_dtype,
         )
         print(f"Inverse covariance matrix shape: {inv_cov.shape}")
-        print(f"u vector shape: {u.shape}")
+        print(f"u vector shape: {cur_repr.shape}")
         
         # Check if dimensions match
-        if inv_cov.shape[1] != u.shape[0]:
-            raise ValueError(f"Dimension mismatch: inv_cov.shape[1] = {inv_cov.shape[1]}, u.shape[0] = {u.shape[0]}")
-        
-        u = inv_cov @ u.unsqueeze(1)
-        u = u.squeeze()
+        if inv_cov.shape[1] != cur_repr.shape[0]:
+            raise ValueError(f"Dimension mismatch: inv_cov.shape[1] = {inv_cov.shape[1]}, u.shape[0] = {cur_repr.shape[0]}")
 
-    return u / u.norm()
+        cur_repr = inv_cov @ cur_repr.unsqueeze(1)
+        cur_repr = cur_repr.squeeze()
+
+    return cur_repr / cur_repr.norm()

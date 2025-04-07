@@ -151,6 +151,9 @@ def generate_fast(
         unicodedata.normalize("NFKD", x)
         .replace("\n\n", " ")
         .replace("<|endoftext|>", "")
+        .replace("<|begin_of_text|>", "")
+        .replace("<s>", "")
+        .replace("</s>", "")
         for x in txt
     ]
 

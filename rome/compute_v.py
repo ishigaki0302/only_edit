@@ -8,6 +8,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from rome import repr_tools
 from utils import nethook
 from utils.compare_dictionaries import compare_dictionaries
+from utils.generate import generate_fast
 from .rome_hparams import ROMEHyperParams
 from utils.print_and_save import print_and_save
 
@@ -50,13 +51,15 @@ def compute_v(
     left_vector: torch.Tensor,
     context_templates: List[str],
     data_set,
-    file_path
+    file_path,
+    step=None
 ) -> torch.Tensor:
     """
     Computes the value (right) vector for the rank-1 update.
     Runs a simple optimization procedure.
     """
     print("Computing right vector (v)")
+    # ------------------------------------------------------
     # target_newのinput作成
     # ------------------------------------------------------
     # Tokenize target into list of int token IDs
@@ -65,7 +68,7 @@ def compute_v(
     ][0]
     # Compile list of rewriting and KL x/y pairs
     rewriting_prompts, kl_prompts = [
-        context.format(request["prompt"]) + tok.decode(target_ids[:-1])
+        context.format(request["prompt"]) + tok.decode(target_ids[:-1], skip_special_tokens=True)
         for context in context_templates
     ], ["{} is a"]
     all_prompts = rewriting_prompts + kl_prompts
@@ -96,7 +99,7 @@ def compute_v(
     ][0]
     # Compile list of rewriting and KL x/y pairs
     rewriting_true_prompts, kl_true_prompts = [
-        context.format(request["prompt"]) + tok.decode(target_true_ids[:-1])
+        context.format(request["prompt"]) + tok.decode(target_true_ids[:-1], skip_special_tokens=True)
         for context in context_templates
     ], ["{} is a"]
     all_true_prompts = rewriting_true_prompts + kl_true_prompts
@@ -119,7 +122,6 @@ def compute_v(
         )
         for i, prompt in enumerate(all_true_prompts)
     ]
-    # ------------------------------------------------------
     # Finalize rewrite and loss layers
     loss_layer = max(hparams.v_loss_layer, layer)
     print(f"Rewrite layer is {layer}")
@@ -196,6 +198,10 @@ def compute_v(
     # ------------------------------------------------------------------
 
     # Execute optimization
+    if step is None:
+        v_num_grad_steps = hparams.v_num_grad_steps
+    else:
+        v_num_grad_steps = step
     for it in range(hparams.v_num_grad_steps):
         opt.zero_grad()
 
@@ -254,7 +260,7 @@ def compute_v(
         new_prob = torch.exp(-nll_loss_each).mean().item()
         # if loss < 5e-2:
         #     break
-        if it == hparams.v_num_grad_steps - 1:
+        if it == v_num_grad_steps - 1:
             break
 
         # Backpropagate
@@ -310,7 +316,6 @@ def compute_v(
             # Aggregate total losses
             nll_loss_each = -(loss * mask).sum(1) / target_true_ids.size(0)
         old_prob = torch.exp(-nll_loss_each).mean().item()
-        # ------------------------------------------------------------------
 
     # target_new用
     # ------------------------------------------------------------------
@@ -359,160 +364,162 @@ def compute_v(
     history_effect_new_probs = []
     history_effect_old_probs = []
     stop_flag = False
-    for step, other_request in enumerate(data_set):
-        if other_request["target_new"]["str"][0] != " ":
-            # Space required for correct tokenization
-            other_request["target_new"]["str"] = " " + other_request["target_new"]["str"]
-        # if other_request["target_true"][0] != " ":
-        #     # Space required for correct tokenization
-        #     other_request["target_true"] = " " + other_request["target_true"]
-        if stop_flag:
-            break
-        if request == other_request:
-            stop_flag = True
-        # target_newのinput作成
-        # ------------------------------------------------------
-        # Tokenize target into list of int token IDs
-        target_ids = tok(other_request["target_new"]["str"], return_tensors="pt").to("cuda")[
-            "input_ids"
-        ][0]
-        # Compile list of rewriting and KL x/y pairs
-        rewriting_prompts, kl_prompts = [
-            context.format(other_request["prompt"]) + tok.decode(target_ids[:-1])
-            for context in context_templates
-        ], ["{} is a"]
-        all_prompts = rewriting_prompts + kl_prompts
-        input_tok = tok(
-            [prompt.format(other_request["subject"]) for prompt in all_prompts],
-            return_tensors="pt",
-            padding=True,
-        ).to("cuda")
-        # Compute rewriting targets
-        rewriting_targets = torch.tensor(-100, device="cuda").repeat(
-            len(rewriting_prompts), *input_tok["input_ids"].shape[1:]
-        )
-        for i in range(len(rewriting_prompts)):
-            ex_len = input_tok["attention_mask"][i].sum()
-            rewriting_targets[i, ex_len - len(target_ids) : ex_len] = target_ids
-        # Compute indices of the tokens where the fact is looked up
-        lookup_idxs = [
-            find_fact_lookup_idx(
-                prompt, other_request["subject"], tok, hparams.fact_token, verbose=(i == 0)
+    # 全データセットを検証する時用
+    if data_set is not None and len(data_set) > 0:
+        for i, other_request in enumerate(data_set):
+            if other_request["target_new"]["str"][0] != " ":
+                # Space required for correct tokenization
+                other_request["target_new"]["str"] = " " + other_request["target_new"]["str"]
+            if other_request["target_true"][0] != " ":
+                # Space required for correct tokenization
+                other_request["target_true"] = " " + other_request["target_true"]
+            if stop_flag:
+                break
+            if request == other_request:
+                stop_flag = True
+            # target_newのinput作成
+            # ------------------------------------------------------
+            # Tokenize target into list of int token IDs
+            target_ids = tok(other_request["target_new"]["str"], return_tensors="pt").to("cuda")[
+                "input_ids"
+            ][0]
+            # Compile list of rewriting and KL x/y pairs
+            rewriting_prompts, kl_prompts = [
+                context.format(other_request["prompt"]) + tok.decode(target_ids[:-1], skip_special_tokens=True)
+                for context in context_templates
+            ], ["{} is a"]
+            all_prompts = rewriting_prompts + kl_prompts
+            input_tok = tok(
+                [prompt.format(other_request["subject"]) for prompt in all_prompts],
+                return_tensors="pt",
+                padding=True,
+            ).to("cuda")
+            # Compute rewriting targets
+            rewriting_targets = torch.tensor(-100, device="cuda").repeat(
+                len(rewriting_prompts), *input_tok["input_ids"].shape[1:]
             )
-            for i, prompt in enumerate(all_prompts)
-        ]
-        # ------------------------------------------------------
-        # target_trueのinput作成
-        # ------------------------------------------------------
-        target_true_ids = tok(other_request["target_true"], return_tensors="pt").to("cuda")[
-            "input_ids"
-        ][0]
-        # Compile list of rewriting and KL x/y pairs
-        rewriting_true_prompts, kl_true_prompts = [
-            context.format(other_request["prompt"]) + tok.decode(target_true_ids[:-1])
-            for context in context_templates
-        ], ["{} is a"]
-        all_true_prompts = rewriting_true_prompts + kl_true_prompts
-        input_true_tok = tok(
-            [prompt.format(other_request["subject"]) for prompt in all_true_prompts],
-            return_tensors="pt",
-            padding=True,
-        ).to("cuda")
-        # Compute rewriting targets
-        rewriting_true_targets = torch.tensor(-100, device="cuda").repeat(
-            len(rewriting_true_prompts), *input_true_tok["input_ids"].shape[1:]
-        )
-        for i in range(len(rewriting_true_prompts)):
-            ex_true_len = input_true_tok["attention_mask"][i].sum()
-            rewriting_true_targets[i, ex_true_len - len(target_true_ids) : ex_true_len] = target_true_ids
-        # Compute indices of the tokens where the fact is looked up
-        lookup_true_idxs = [
-            find_fact_lookup_idx(
-                prompt, other_request["subject"], tok, hparams.fact_token, verbose=(i == 0)
+            for i in range(len(rewriting_prompts)):
+                ex_len = input_tok["attention_mask"][i].sum()
+                rewriting_targets[i, ex_len - len(target_ids) : ex_len] = target_ids
+            # Compute indices of the tokens where the fact is looked up
+            lookup_idxs = [
+                find_fact_lookup_idx(
+                    prompt, other_request["subject"], tok, hparams.fact_token, verbose=(i == 0)
+                )
+                for i, prompt in enumerate(all_prompts)
+            ]
+            # ------------------------------------------------------
+            # target_trueのinput作成
+            # ------------------------------------------------------
+            target_true_ids = tok(other_request["target_true"], return_tensors="pt").to("cuda")[
+                "input_ids"
+            ][0]
+            # Compile list of rewriting and KL x/y pairs
+            rewriting_true_prompts, kl_true_prompts = [
+                context.format(other_request["prompt"]) + tok.decode(target_true_ids[:-1], skip_special_tokens=True)
+                for context in context_templates
+            ], ["{} is a"]
+            all_true_prompts = rewriting_true_prompts + kl_true_prompts
+            input_true_tok = tok(
+                [prompt.format(other_request["subject"]) for prompt in all_true_prompts],
+                return_tensors="pt",
+                padding=True,
+            ).to("cuda")
+            # Compute rewriting targets
+            rewriting_true_targets = torch.tensor(-100, device="cuda").repeat(
+                len(rewriting_true_prompts), *input_true_tok["input_ids"].shape[1:]
             )
-            for i, prompt in enumerate(all_true_prompts)
-        ]
-        # ------------------------------------------------------------------
-        # target_new用
-        # ------------------------------------------------------------------
-        with torch.no_grad():
-            # Forward propagation
-            with nethook.TraceDict(
-                module=model,
-                layers=[
-                    hparams.layer_module_tmp.format(loss_layer),
-                    hparams.mlp_module_tmp.format(layer),
-                ],
-                retain_input=False,
-                retain_output=True,
-                edit_output=edit_output_fn,
-            ) as tr:
-                logits = model(**input_tok).logits
-                # Compute distribution for KL divergence
-                kl_logits = torch.stack(
-                    [
-                        logits[i - len(kl_prompts), idx, :]
-                        for i, idx in enumerate(lookup_idxs[-len(kl_prompts) :])
-                    ],
-                    dim=0,
+            for i in range(len(rewriting_true_prompts)):
+                ex_true_len = input_true_tok["attention_mask"][i].sum()
+                rewriting_true_targets[i, ex_true_len - len(target_true_ids) : ex_true_len] = target_true_ids
+            # Compute indices of the tokens where the fact is looked up
+            lookup_true_idxs = [
+                find_fact_lookup_idx(
+                    prompt, other_request["subject"], tok, hparams.fact_token, verbose=(i == 0)
                 )
-                kl_log_probs = torch.nn.functional.log_softmax(kl_logits, dim=1)
-                if kl_distr_init is None:
-                    kl_distr_init = kl_log_probs.detach().clone()
-            # Compute loss on rewriting targets
-            log_probs = torch.log_softmax(logits, dim=2)
-            loss = torch.gather(
-                log_probs,
-                2,
-                torch.where(rewriting_targets != -100, rewriting_targets, 0).unsqueeze(2),
-            ).squeeze(2)
-            mask = (rewriting_targets != -100).float()
-            # Aggregate total losses
-            nll_loss_each = -(loss * mask).sum(1) / target_ids.size(0)
-            new_prob = torch.exp(-nll_loss_each).mean().item()
-        # ------------------------------------------------------------------
-        # target_true用
-        # ------------------------------------------------------------------
-        with torch.no_grad():
-            # Forward propagation
-            with nethook.TraceDict(
-                module=model,
-                layers=[
-                    hparams.layer_module_tmp.format(loss_layer),
-                    hparams.mlp_module_tmp.format(layer),
-                ],
-                retain_input=False,
-                retain_output=True,
-                edit_output=edit_output_fn,
-            ) as tr:
-                logits = model(**input_true_tok).logits
-                # Compute distribution for KL divergence
-                kl_logits = torch.stack(
-                    [
-                        logits[i - len(kl_true_prompts), idx, :]
-                        for i, idx in enumerate(lookup_true_idxs[-len(kl_true_prompts) :])
+                for i, prompt in enumerate(all_true_prompts)
+            ]
+            # ------------------------------------------------------------------
+            # target_new用
+            # ------------------------------------------------------------------
+            with torch.no_grad():
+                # Forward propagation
+                with nethook.TraceDict(
+                    module=model,
+                    layers=[
+                        hparams.layer_module_tmp.format(loss_layer),
+                        hparams.mlp_module_tmp.format(layer),
                     ],
-                    dim=0,
-                )
-                kl_log_probs = torch.nn.functional.log_softmax(kl_logits, dim=1)
-                if kl_distr_init is None:
-                    kl_distr_init = kl_log_probs.detach().clone()
-            # Compute loss on rewriting targets
-            log_probs = torch.log_softmax(logits, dim=2)
-            loss = torch.gather(
-                log_probs,
-                2,
-                torch.where(rewriting_true_targets != -100, rewriting_true_targets, 0).unsqueeze(2),
-            ).squeeze(2)
-            mask = (rewriting_true_targets != -100).float()
-            # Aggregate total losses
-            nll_loss_each = -(loss * mask).sum(1) / target_true_ids.size(0)
-            old_prob = torch.exp(-nll_loss_each).mean().item()
-        # ------------------------------------------------------------------
-        print(f"new_prob: {new_prob}")
-        print(f"old_prob: {old_prob}")
-        history_effect_new_probs.append(new_prob)
-        history_effect_old_probs.append(old_prob)
+                    retain_input=False,
+                    retain_output=True,
+                    edit_output=edit_output_fn,
+                ) as tr:
+                    logits = model(**input_tok).logits
+                    # Compute distribution for KL divergence
+                    kl_logits = torch.stack(
+                        [
+                            logits[i - len(kl_prompts), idx, :]
+                            for i, idx in enumerate(lookup_idxs[-len(kl_prompts) :])
+                        ],
+                        dim=0,
+                    )
+                    kl_log_probs = torch.nn.functional.log_softmax(kl_logits, dim=1)
+                    if kl_distr_init is None:
+                        kl_distr_init = kl_log_probs.detach().clone()
+                # Compute loss on rewriting targets
+                log_probs = torch.log_softmax(logits, dim=2)
+                loss = torch.gather(
+                    log_probs,
+                    2,
+                    torch.where(rewriting_targets != -100, rewriting_targets, 0).unsqueeze(2),
+                ).squeeze(2)
+                mask = (rewriting_targets != -100).float()
+                # Aggregate total losses
+                nll_loss_each = -(loss * mask).sum(1) / target_ids.size(0)
+                new_prob = torch.exp(-nll_loss_each).mean().item()
+            # ------------------------------------------------------------------
+            # target_true用
+            # ------------------------------------------------------------------
+            with torch.no_grad():
+                # Forward propagation
+                with nethook.TraceDict(
+                    module=model,
+                    layers=[
+                        hparams.layer_module_tmp.format(loss_layer),
+                        hparams.mlp_module_tmp.format(layer),
+                    ],
+                    retain_input=False,
+                    retain_output=True,
+                    edit_output=edit_output_fn,
+                ) as tr:
+                    logits = model(**input_true_tok).logits
+                    # Compute distribution for KL divergence
+                    kl_logits = torch.stack(
+                        [
+                            logits[i - len(kl_true_prompts), idx, :]
+                            for i, idx in enumerate(lookup_true_idxs[-len(kl_true_prompts) :])
+                        ],
+                        dim=0,
+                    )
+                    kl_log_probs = torch.nn.functional.log_softmax(kl_logits, dim=1)
+                    if kl_distr_init is None:
+                        kl_distr_init = kl_log_probs.detach().clone()
+                # Compute loss on rewriting targets
+                log_probs = torch.log_softmax(logits, dim=2)
+                loss = torch.gather(
+                    log_probs,
+                    2,
+                    torch.where(rewriting_true_targets != -100, rewriting_true_targets, 0).unsqueeze(2),
+                ).squeeze(2)
+                mask = (rewriting_true_targets != -100).float()
+                # Aggregate total losses
+                nll_loss_each = -(loss * mask).sum(1) / target_true_ids.size(0)
+                old_prob = torch.exp(-nll_loss_each).mean().item()
+            # ------------------------------------------------------------------
+            print(f"new_prob: {new_prob}")
+            print(f"old_prob: {old_prob}")
+            history_effect_new_probs.append(new_prob)
+            history_effect_old_probs.append(old_prob)
 
     target = target_init + delta
 
@@ -591,7 +598,6 @@ def find_fact_lookup_idx(
     """
     Computes hypothesized fact lookup index given a sentence and subject.
     """
-
     ret = None
     if fact_token_strategy == "last":
         ret = -1
@@ -610,7 +616,7 @@ def find_fact_lookup_idx(
     if verbose:
         print(
             f"Lookup index found: {ret} | Sentence: {sentence} | Token:",
-            tok.decode(tok(sentence)["input_ids"][ret]),
+            tok.decode(tok(sentence)["input_ids"][ret], skip_special_tokens=True),
         )
 
     return ret

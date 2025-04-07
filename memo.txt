@@ -1,3 +1,19 @@
+context.format(other_request["prompt"]) + tok.decode(target_ids[:-1], skip_special_tokens=True)
+
+# if request["target_new"]["str"][0] != " ":
+#     # Space required for correct tokenization
+#     request["target_new"]["str"] = " " + request["target_new"]["str"]
+# if request["target_true"][0] != " ":
+#     # Space required for correct tokenization
+#     request["target_true"] = " " + request["target_true"]
+
+# if other_request["target_new"]["str"][0] != " ":
+#     # Space required for correct tokenization
+#     other_request["target_new"]["str"] = " " + other_request["target_new"]["str"]
+# if other_request["target_true"][0] != " ":
+#     # Space required for correct tokenization
+#     other_request["target_true"] = " " + other_request["target_true"]
+
 only_edit/rome/compute_v.py
     if other_request["target_new"]["str"][0] != " ":
         # Space required for correct tokenization
