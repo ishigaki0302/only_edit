@@ -1,3 +1,12 @@
+generate_fast(
+        model,
+        tok,
+        ["<|endoftext|>"],
+        # ["<s>"],
+        n_gen_per_prompt=n_gen,
+        max_out_len=length,
+    )
+
 context.format(other_request["prompt"]) + tok.decode(target_ids[:-1], skip_special_tokens=True)
 
 # if request["target_new"]["str"][0] != " ":
