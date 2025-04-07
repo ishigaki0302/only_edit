@@ -143,7 +143,7 @@ for orig_index, data in tqdm(filtered_data, desc="全データ処理"):
 
         # ROMEの実行（モデル編集関数）
         model, orig_weights, old_probs, new_probs, probs_diff, history_effect_old_probs, history_effect_new_probs = demo_model_editing(
-            model, tok, request, generation_prompts, file_path=f"{index_dir}.txt", data_set=filtered_data, step=i+1
+            model, tok, request, generation_prompts, file_path=f"{index_dir}.txt", data_set=None, step=i+1
         )
 
         # GPUメモリの解放
